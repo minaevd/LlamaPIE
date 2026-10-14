@@ -122,7 +122,7 @@ def wired_limit(model: nn.Module, streams: Optional[List[mx.Stream]] = None):
     model_bytes = tree_reduce(
         lambda acc, x: acc + x.nbytes if isinstance(x, mx.array) else acc, model, 0
     )
-    max_rec_size = mx.metal.device_info()["max_recommended_working_set_size"]
+    max_rec_size = mx.device_info()["max_recommended_working_set_size"]
     if model_bytes > 0.9 * max_rec_size:
         model_mb = model_bytes // 2**20
         max_rec_mb = max_rec_size // 2**20
@@ -132,7 +132,7 @@ def wired_limit(model: nn.Module, streams: Optional[List[mx.Stream]] = None):
             "MB. This can be slow. See the documentation for possible work-arounds: "
             "https://github.com/ml-explore/mlx-examples/tree/main/llms#large-models"
         )
-    old_limit = mx.metal.set_wired_limit(max_rec_size)
+    old_limit = mx.set_wired_limit(max_rec_size)
     try:
         yield None
     finally:
@@ -141,7 +141,7 @@ def wired_limit(model: nn.Module, streams: Optional[List[mx.Stream]] = None):
                 mx.synchronize(s)
         else:
             mx.synchronize()
-        mx.metal.set_wired_limit(old_limit)
+        mx.set_wired_limit(old_limit)
 
 
 def _get_classes(config: dict):
@@ -305,7 +305,7 @@ def classifier_step(
         yield pred.item(), logits
 
         if n % 256 == 0:
-            mx.metal.clear_cache()
+            mx.clear_cache()
 
 def stream_classify(
     model: nn.Module,
@@ -355,7 +355,7 @@ def stream_classify(
                 probs = logits,
                 generation_tokens=n,
                 generation_tps=(n + 1) / (time.perf_counter() - tic),
-                peak_memory=mx.metal.get_peak_memory() / 1e9,
+                peak_memory=mx.get_peak_memory() / 1e9,
                 finish_reason=None,
             )
 
@@ -422,6 +422,7 @@ def inject_init_prompt(
     kv_group_size: int = 64,
     quantized_kv_start: int = 0,
     prompt_progress_callback: Optional[Callable[int, int]] = None,
+    verbose: bool = False,
 ) -> Generator[Tuple[mx.array, mx.array], None, None]:
     """
     A generator producing token ids based on the given prompt from the model.
@@ -510,12 +511,13 @@ def inject_init_prompt(
             prompt_progress_callback(prompt_processed_tokens, total_prompt_tokens)
             prompt_processed_tokens += prefill_step_size
             y = y[prefill_step_size:]
-            mx.metal.clear_cache()
+            mx.clear_cache()
 
         y, logprobs = _step(y)
 
     mx.async_eval(y, logprobs)
-    print("Inject time: ", time.perf_counter() - t0)
+    if verbose:
+        print("Inject time: ", time.perf_counter() - t0)
 
 
 def generate_step(
@@ -621,7 +623,7 @@ def generate_step(
             prompt_progress_callback(prompt_processed_tokens, total_prompt_tokens)
             prompt_processed_tokens += prefill_step_size
             y = y[prefill_step_size:]
-            mx.metal.clear_cache()
+            mx.clear_cache()
 
         y, logprobs = _step(y)
     
@@ -641,7 +643,7 @@ def generate_step(
         # print(n, y)
         yield y.item(), logprobs
         if n % 256 == 0:
-            mx.metal.clear_cache()
+            mx.clear_cache()
         y, logprobs = next_y, next_logprobs
         n += 1
 
@@ -729,7 +731,7 @@ def speculative_generate_step(
             quantize_cache_fn(cache)
             mx.eval([c.state for c in cache])
             y = y[prefill_step_size:]
-            mx.metal.clear_cache()
+            mx.clear_cache()
         return y
 
     def _rewind_cache(num_draft, num_accept):
@@ -866,7 +868,7 @@ def stream_generate(
                 prompt_tps=prompt_tps,
                 generation_tokens=n + 1,
                 generation_tps=(n + 1) / (time.perf_counter() - tic),
-                peak_memory=mx.metal.get_peak_memory() / 1e9,
+                peak_memory=mx.get_peak_memory() / 1e9,
                 finish_reason=None,
             )
 
@@ -879,7 +881,7 @@ def stream_generate(
             prompt_tps=prompt_tps,
             generation_tokens=n + 1,
             generation_tps=(n + 1) / (time.perf_counter() - tic),
-            peak_memory=mx.metal.get_peak_memory() / 1e9,
+            peak_memory=mx.get_peak_memory() / 1e9,
             finish_reason="stop" if token in tokenizer.eos_token_ids else "length",
         )
 

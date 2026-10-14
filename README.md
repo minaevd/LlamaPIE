@@ -26,10 +26,15 @@ LlamaPIE🥧 is a **Proactive**, **In-Ear** assistant that augments human-to-hum
 # 🔧Quick Start
 ## Setup environment
 ```
-git clone https://github.com/chentuochao/LlamaPIE.git
-conda create -n llamapie python=3.9
-pip install -r requirement.txt
+git clone https://github.com/minaevd/LlamaPIE.git
+cd LlamaPIE
+conda create -n llamapie python=3.11.9
+conda activate llamapie
+pip install -r requirements.txt
 ```
+Scripts pick CUDA, then Apple MPS, then CPU automatically.
+
+The PyTorch checkpoints are LoRA adapters on top of the gated `meta-llama/Llama-3.2-1B-Instruct` and `meta-llama/Llama-3.1-8B-Instruct`. Accept the license on both Hugging Face pages, then run `hf auth login` (or set `HF_TOKEN`). The MLX checkpoints used by the on-device demo are not gated.
 
 # 📊 Inference
 
@@ -48,27 +53,31 @@ Speaker1:  So, how are you doing? User: I'm pretty good. |SILENCE > |SILENCE > D
 
 # 📊 On-device demo (MLX support in Apple silicon)
 Set up
+`requirements.txt` already installs MLX and the repo's patched `mlx_lm` (`edge/mlx-examples/llms`). The demo needs about 11 GB of unified memory (8B INT8 model plus 1B FP16 model).
 ```
-# Set up conda from Apple official website
-https://developer.apple.com/metal/pytorch/
-
-# create conda env
-conda create -n llamapie python==3.11.9
-
-# install mps support torch 
-pip3 install --pre torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-
-# install mlx-ml from local folder
-cd ./edge/mlx-examples/llms/
-pip install -e .
-
-# downgrade transformers
-pip install transformers==4.48.0
-
-# run local demo
 cd edge/
 python text_demo.py
 ```
+
+### Live speech demo
+`edge/live_demo.py` transcribes speech with Whisper (`mlx-whisper`) and streams it through the classifier and generator (`edge/proactive_agent.py`). Every 0.5 s of silence becomes a `|SILENCE >` marker, where the agent may whisper.
+```
+cd edge/
+# once: smaller copies of the models (8-bit classifier, 6-bit generator; 7.4 GB instead of 10.3 GB),
+# needed to stay real-time on a 16 GB Mac. Same whispers as the originals on the sample dialogues.
+python quantize_models.py
+
+# once: record ~20 s of your voice so you are recognized as "user" and others as "speaker N"
+python live_demo.py --enroll
+
+# microphone (without an enrolled voice: press Enter to switch between "user" and "speaker 1")
+python live_demo.py --memory ../samples/00001/memory.txt
+
+# or synthesize a dataset-format dialogue with macOS `say` and replay it
+python dialogue_to_audio.py ../samples/00001/dialogue.txt conversation.wav
+python live_demo.py --audio-file conversation.wav --memory ../samples/00001/memory.txt
+```
+The agent is selective: it speaks only when it predicts a hint will help (often at hesitations, using facts from the memory file). `--threshold 0.3` makes it more proactive (default 0.5), and `--debug` prints the loudness and its speak probability at every pause.
 
 </details>
 

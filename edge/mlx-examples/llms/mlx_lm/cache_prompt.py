@@ -147,7 +147,7 @@ def main():
         pass
 
     print()
-    print(f"Peak memory: {mx.metal.get_peak_memory() / 1e9:.3f} GB")
+    print(f"Peak memory: {mx.get_peak_memory() / 1e9:.3f} GB")
 
     print("Saving...")
     metadata = {}

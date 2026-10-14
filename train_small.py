@@ -3,11 +3,12 @@ import datasets
 from pathlib import Path
 import os
 import string
+import argparse
 import numpy as np
 from peft import LoraConfig, get_peft_model, TaskType
 os.environ["WANDB_DISABLED"] = "true"
-os.environ['HF_DATASETS_CACHE'] = '/scr/data'
 import torch
+from model.device import get_device, empty_cache
 from transformers import AutoTokenizer, DataCollatorForTokenClassification
 from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, EvalPrediction
 from model.CasualTokenClassificationLlama import LlamaForCausalLM_TokenClassifcation
@@ -15,43 +16,43 @@ from sklearn.metrics import accuracy_score
 from mydatasets.Active_dataset import New_WhisperAware_dataset
 
 model_id = "meta-llama/Llama-3.2-1B-Instruct" 
+parser = argparse.ArgumentParser()
+# Experiment Params
+parser.add_argument('--save_path', type=str,
+                    help='Path to save model')
+parser.add_argument('--data_root', type=str, required=True,
+                    help='Folder the training dataset was untarred into')
+args = parser.parse_args()
+
+device = get_device()
+
 ### loading the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(
     model_id,
-    cache_dir = "xxx",
-    pad_token="<|eot_id|>",
-    token = "xxx"
+    pad_token="<|eot_id|>"
     )
 
 tokenizer.pad_token = tokenizer.eos_token
 model = LlamaForCausalLM_TokenClassifcation.from_pretrained(
     model_id,
-    device_map='cuda', 
+    device_map=device, 
     torch_dtype=torch.bfloat16, 
-    num_labels = 2,
-    cache_dir = "xxx",
-    token = "xxx")
+    num_labels = 2)
 
 ### change the dataset path based on your file systems
 positive_base_train = [
-    "XXX/synthetic0/Train/claude",
-    "XXX/perl/Train/claude",
-    "XXX/soda/Train/claude",
-    "XXX/synthetic/Train/claude",
+    os.path.join(args.data_root, "synthetic0/Train/claude"),
+    os.path.join(args.data_root, "perl/Train/claude"),
+    os.path.join(args.data_root, "soda/Train/claude"),
+    os.path.join(args.data_root, "synthetic/Train/claude"),
 ]
 positive_base_dev = [
-    "XXX/synthetic0/Val/claude",
-    "XXX/perl/Val/claude",
-    "XXX/soda/Val/claude",
-    "XXX/synthetic/Val/claude",
+    os.path.join(args.data_root, "synthetic0/Val/claude"),
+    os.path.join(args.data_root, "perl/Val/claude"),
+    os.path.join(args.data_root, "soda/Val/claude"),
+    os.path.join(args.data_root, "synthetic/Val/claude"),
 ]
 
-parser = argparse.ArgumentParser()
-# Experiment Params
-parser.add_argument('--save_path', type=str,
-                    help='Path to save model')
-
-args = parser.parse_args()
 
 
 # aug_config = {
