@@ -32,7 +32,7 @@ from .utils import load, stream_generate
 
 
 def get_system_fingerprint():
-    gpu_arch = mx.metal.device_info()["architecture"] if mx.metal.is_available() else ""
+    gpu_arch = mx.device_info()["architecture"] if mx.metal.is_available() else ""
     return f"{__version__}-{mx.__version__}-{platform.platform()}-{gpu_arch}"
 
 
@@ -747,7 +747,7 @@ def main():
 
     if args.cache_limit_gb is not None:
         logging.debug(f"Setting cache limit to {args.cache_limit_gb} GB")
-        mx.metal.set_cache_limit(args.cache_limit_gb * 1024 * 1024 * 1024)
+        mx.set_cache_limit(args.cache_limit_gb * 1024 * 1024 * 1024)
 
     run(args.host, args.port, ModelProvider(args))
 
