@@ -7,6 +7,8 @@ import os
 from peft import LoraConfig, get_peft_model, TaskType
 
 import torch
+from model.device import get_device, empty_cache
+from transformers import logging as transformers_logging
 from transformers import AutoTokenizer, DataCollatorForTokenClassification
 from model.CasualTokenClassificationLlama import LlamaForCausalLM_TokenClassifcation
 
@@ -31,37 +33,34 @@ active_factor = 0
 classifier_aware = True
 generator_aware = True
 
+device = get_device()
+
 # load weight for small model
 tokenizer_small = AutoTokenizer.from_pretrained(
     "tuochao/Llama-3.2-1B-Proactive-Small-Peft",
-    pad_token="<|eot_id|>",
-    cache_dir = "/scr/tuochao/",
-    token = "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"
+    pad_token="<|eot_id|>"
     )
 tokenizer_small.pad_token = tokenizer_small.eos_token
+# base checkpoint has no classifier; the adapter loads the trained one, so skip the "newly initialized" warning
+transformers_logging.set_verbosity_error()
 model_small = LlamaForCausalLM_TokenClassifcation.from_pretrained(
     "tuochao/Llama-3.2-1B-Proactive-Small-Peft",
-    device_map='cuda', 
+    device_map=device, 
     torch_dtype=torch.bfloat16, 
-    num_labels = 2,
-    cache_dir = "/scr/tuochao/",
-    token = "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")
+    num_labels = 2)
+transformers_logging.set_verbosity_warning()
 
 tokenizer_big = AutoTokenizer.from_pretrained(
     "tuochao/Llama-3.1-8B-Proactive-Big-Peft",
-    pad_token="<|eot_id|>",
-    cache_dir = "/scr/tuochao/",
-    token = "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",
+    pad_token="<|eot_id|>"
     )
 
 ### load weight for big model
 tokenizer_big.pad_token = tokenizer_big.eos_token
 model_big = AutoModelForCausalLM.from_pretrained(
     "tuochao/Llama-3.1-8B-Proactive-Big-Peft",
-    device_map='cuda', 
-    torch_dtype=torch.bfloat16, 
-    cache_dir = "/scr/tuochao/",
-    token = "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")
+    device_map=device, 
+    torch_dtype=torch.bfloat16)
 
 terminators = [
     tokenizer_big.eos_token_id,
@@ -71,7 +70,7 @@ terminators = [
 response_template = "<|start_header_id|>assistant<|end_header_id|>"
 
 
-torch.cuda.empty_cache()
+empty_cache()
 sample = SingleSample(tokenizer_small, tokenizer_big, conversation_folder=args.input_path)
 
 L_cache = 0
@@ -134,11 +133,12 @@ while True:
         input_ids2 = input_ids2.unsqueeze(0).to(model_big.device)
         outputs = model_big.generate(
             input_ids2,
+            attention_mask=torch.ones_like(input_ids2),
             max_new_tokens=512,
             eos_token_id=terminators,
             do_sample=False,
-            temperature=0.6,
-            top_p=0.9,
+            temperature=None,
+            top_p=None,
             pad_token_id = tokenizer_big.pad_token_id
         )
         response = outputs[0]#[input_ids.shape[-1]:]

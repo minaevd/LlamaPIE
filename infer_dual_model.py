@@ -7,6 +7,8 @@ import os
 from peft import LoraConfig, get_peft_model, TaskType
 
 import torch
+from model.device import get_device, empty_cache
+from transformers import logging as transformers_logging
 from transformers import AutoTokenizer, DataCollatorForTokenClassification
 from model.CasualTokenClassificationLlama import LlamaForCausalLM_TokenClassifcation
 
@@ -16,14 +18,12 @@ from peft import PeftModel, PeftConfig
 import json
 import argparse
 # os.environ["WANDB_DISABLED"] = "true"
-# os.environ["HF_HOME"] = "/scr/tuochao"
-# os.environ["HF_HUB_CACHE"] =  "/scr/tuochao"
-# os.environ["HF_DATASETS_CACHE"]=  "/scr/tuochao"
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, choices= ['MIT', 'Sync_claude', 'Sync_perl', 'Sync_soda'], default='Sync_claude')
 parser.add_argument('--save-path', type=str, help="path to save result")
+parser.add_argument('--data-root', type=str, required=True, help="folder the evaluation dataset was untarred into")
 
 args = parser.parse_args()
 
@@ -33,19 +33,19 @@ os.makedirs(output_samples, exist_ok = True)
 
 if dataset_name == "MIT":
     from mydatasets.Pipeline_dataset import MIT_sample  as  SingleSample
-    output_base = 'XXX/MIT_final/'
+    output_base = os.path.join(args.data_root, 'MIT_final/')
     input_dirs = []
 elif dataset_name == "Sync_claude":
     from mydatasets.Pipeline_dataset import Syn_samples  as  SingleSample
-    output_base =  "XXX/synthetic/Test/claude"
+    output_base =  os.path.join(args.data_root, 'synthetic/Test/claude')
     input_dirs = []
 elif dataset_name == "Sync_perl":
     from mydatasets.Pipeline_dataset import Syn_samples  as  SingleSample
-    output_base =  "XXX/perl/Test/claude"
+    output_base =  os.path.join(args.data_root, 'perl/Test/claude')
     input_dirs = []
 elif dataset_name == "Sync_soda":
     from mydatasets.Pipeline_dataset import Syn_samples  as  SingleSample
-    output_base =  "XXX/soda/Test/claude"
+    output_base =  os.path.join(args.data_root, 'soda/Test/claude')
     input_dirs = []
 else:
     raise ValueError("dataset not supported!") 
@@ -55,37 +55,34 @@ active_factor = 0
 classifier_aware = True
 generator_aware = True
 
+device = get_device()
+
 # load weight for small model
 tokenizer_small = AutoTokenizer.from_pretrained(
     "tuochao/Llama-3.2-1B-Proactive-Small-Peft",
-    pad_token="<|eot_id|>",
-    cache_dir = "xxx",
-    token = "xxx"
+    pad_token="<|eot_id|>"
     )
 tokenizer_small.pad_token = tokenizer_small.eos_token
+# base checkpoint has no classifier; the adapter loads the trained one, so skip the "newly initialized" warning
+transformers_logging.set_verbosity_error()
 model_small = LlamaForCausalLM_TokenClassifcation.from_pretrained(
     "tuochao/Llama-3.2-1B-Proactive-Small-Peft",
-    device_map='cuda', 
+    device_map=device, 
     torch_dtype=torch.bfloat16, 
-    num_labels = 2,
-    cache_dir = "xxx",
-    token = "xxx")
+    num_labels = 2)
+transformers_logging.set_verbosity_warning()
 
 tokenizer_big = AutoTokenizer.from_pretrained(
     "tuochao/Llama-3.1-8B-Proactive-Big-Peft",
-    pad_token="<|eot_id|>",
-    cache_dir = "xxx",
-    token = "xxx",
+    pad_token="<|eot_id|>"
     )
 
 ### load weight for big model
 tokenizer_big.pad_token = tokenizer_big.eos_token
 model_big = AutoModelForCausalLM.from_pretrained(
     "tuochao/Llama-3.1-8B-Proactive-Big-Peft",
-    device_map='cuda', 
-    torch_dtype=torch.bfloat16, 
-    cache_dir = "/scr/tuochao/",
-    token = "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")
+    device_map=device, 
+    torch_dtype=torch.bfloat16)
 
 terminators = [
     tokenizer_big.eos_token_id,
@@ -126,7 +123,7 @@ total_num_spoken = []
 for i in range(0, 100):
     # print("----------", i)
     print(f"{i+1}/100 - {model_count}", end="\r")
-    torch.cuda.empty_cache()
+    empty_cache()
     sample = SingleSample(tokenizer_small, tokenizer_big, output_base, split_set="Test", sample_id = i, input_dirs = input_dirs)
     
     if not sample.valid:
@@ -207,11 +204,12 @@ for i in range(0, 100):
             input_ids2 = input_ids2.unsqueeze(0).to(model_big.device)
             outputs = model_big.generate(
                 input_ids2,
+                attention_mask=torch.ones_like(input_ids2),
                 max_new_tokens=512,
                 eos_token_id=terminators,
                 do_sample=False,
-                temperature=0.6,
-                top_p=0.9,
+                temperature=None,
+                top_p=None,
                 pad_token_id = tokenizer_big.pad_token_id
             )
             response = outputs[0]#[input_ids.shape[-1]:]

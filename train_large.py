@@ -1,4 +1,4 @@
-from mydatasets.Gen_dataset import Gen_dataset, Gen_dataset_New
+from mydatasets.Gen_dataset import Gen_dataset_New
 import numpy as np
 from datasets import load_dataset
 import datasets
@@ -6,8 +6,8 @@ from pathlib import Path
 import os
 from peft import LoraConfig, get_peft_model, TaskType
 os.environ["WANDB_DISABLED"] = "true"
-os.environ['HF_DATASETS_CACHE'] = '/scr/data'
 import torch
+from model.device import get_device, empty_cache
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling
 from transformers import AutoModelForCausalLM, TrainingArguments, Trainer, EvalPrediction
 from sklearn.metrics import accuracy_score
@@ -24,35 +24,32 @@ parser.add_argument('--model', type=str,
 parser.add_argument('--save_path', type=str,
                     help='Path to save model')
 
+parser.add_argument('--data_root', type=str, required=True,
+                    help='Folder the training datasets were untarred into')
 args = parser.parse_args()
 
 
 if args.model == "llama3-8b":
     model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-    model_cache = "/gscratch/intelligentsystems/tuochao/Large_Model/llama3"
 elif args.model == "llama3_1-8b":
     model_id = "meta-llama/Llama-3.1-8B-Instruct"
-    model_cache = "/gscratch/intelligentsystems/tuochao/Large_Model/llama3_1"
 elif args.model == "llama3_2-1b":
     model_id = "meta-llama/Llama-3.2-1B-Instruct"
-    model_cache = "/gscratch/intelligentsystems/tuochao/Large_Model/llama3_2_1b"
 else:
-    raise ValueError(f"model id {model_id} not support")
+    raise ValueError(f"model {args.model} not supported")
+
+device = get_device()
 
 ### loading the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(
     model_id,
-    cache_dir = model_cache,
-    pad_token="<|eot_id|>",
-    token = "xxx"
+    pad_token="<|eot_id|>"
     )
 tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map='cuda', 
-    torch_dtype=torch.bfloat16, 
-    cache_dir = model_cache,
-    token = "xxx")
+    device_map=device, 
+    torch_dtype=torch.bfloat16)
 
 print(f'model {args.model} loaded!')
 
@@ -61,10 +58,10 @@ dataset_val = None
 
 ### change the dataset path based on your file systems
 dataset_names = [
-    "XXX/Final_Generation/Pos_Neg/perl/",
-    "XXX/Final_Generation/Pos_Neg/soda/",
-    "XXX/Final_Generation/Pos_Neg/synthetic/",
-    "XXX/Generation/Pos_Neg/"
+    os.path.join(args.data_root, "Final_Generation/Pos_Neg/perl/"),
+    os.path.join(args.data_root, "Final_Generation/Pos_Neg/soda/"),
+    os.path.join(args.data_root, "Final_Generation/Pos_Neg/synthetic/"),
+    os.path.join(args.data_root, "Generation/Pos_Neg/")
 ]
 
 dataset_prob = [
